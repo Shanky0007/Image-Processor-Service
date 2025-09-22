@@ -1,4 +1,4 @@
-const { body } = require('express-validator');
+const { body, query, param } = require('express-validator');
 
 const validateRegister = [
   body('username')
@@ -49,8 +49,52 @@ const validateProfileUpdate = [
     .normalizeEmail()
 ];
 
+const validateImageParams = [
+  param('id')
+    .isMongoId()
+    .withMessage('Invalid image ID format')
+];
+
+const validateImageQuery = [
+  query('page')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Page must be a positive integer'),
+  
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 50 })
+    .withMessage('Limit must be between 1 and 50'),
+  
+  query('sortBy')
+    .optional()
+    .isIn(['createdAt', 'updatedAt', 'size', 'originalName'])
+    .withMessage('Invalid sort field'),
+  
+  query('sortOrder')
+    .optional()
+    .isIn(['asc', 'desc'])
+    .withMessage('Sort order must be asc or desc'),
+  
+  query('mimetype')
+    .optional()
+    .matches(/^image\/(jpeg|jpg|png|webp|gif)$/)
+    .withMessage('Invalid mimetype filter')
+];
+
+const validateImageUpload = [
+  body('tags')
+    .optional()
+    .isString()
+    .isLength({ max: 200 })
+    .withMessage('Tags must be a string with maximum 200 characters')
+];
+
 module.exports = {
   validateRegister,
   validateLogin,
-  validateProfileUpdate
+  validateProfileUpdate,
+  validateImageParams,
+  validateImageQuery,
+  validateImageUpload
 };
