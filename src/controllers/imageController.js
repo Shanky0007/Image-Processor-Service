@@ -1,6 +1,7 @@
 const Image = require('../models/Image');
 const User = require('../models/User');
 const { getImageDimensions, validateImageFile, generateImageUrl, deleteImageFile } = require('../utils/imageUtils');
+const imageTransformationService = require('../services/imageTransformationService');
 const path = require('path');
 const fs = require('fs').promises;
 
@@ -302,10 +303,345 @@ const deleteImage = async (req, res) => {
   }
 };
 
+// Image Transformation Controllers
+
+const transformImage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type, options } = req.body;
+
+    // Find the image
+    const image = await Image.findById(id);
+    if (!image) {
+      return res.status(404).json({
+        success: false,
+        message: 'Image not found'
+      });
+    }
+
+    // Check ownership
+    if (image.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You can only transform your own images.'
+      });
+    }
+
+    // Validate transformation type
+    const validTypes = ['resize', 'crop', 'rotate', 'format', 'filter', 'watermark', 'thumbnail'];
+    if (!validTypes.includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid transformation type. Valid types: ${validTypes.join(', ')}`
+      });
+    }
+
+    let resultPath;
+    
+    // Apply transformation based on type
+    switch (type) {
+      case 'resize':
+        resultPath = await imageTransformationService.resizeImage(image.path, options);
+        break;
+      case 'crop':
+        resultPath = await imageTransformationService.cropImage(image.path, options);
+        break;
+      case 'rotate':
+        resultPath = await imageTransformationService.rotateImage(image.path, options);
+        break;
+      case 'format':
+        resultPath = await imageTransformationService.convertFormat(image.path, options);
+        break;
+      case 'filter':
+        resultPath = await imageTransformationService.applyFilter(image.path, options);
+        break;
+      case 'watermark':
+        resultPath = await imageTransformationService.addTextWatermark(image.path, options);
+        break;
+      case 'thumbnail':
+        resultPath = await imageTransformationService.createThumbnail(image.path, options);
+        break;
+    }
+
+    // Generate URL for transformed image
+    const filename = path.basename(resultPath);
+    const resultUrl = generateImageUrl(req, filename);
+
+    // Save transformation to database
+    const transformation = {
+      type,
+      parameters: options,
+      resultPath,
+      resultUrl,
+      createdAt: new Date()
+    };
+
+    image.transformations.push(transformation);
+    await image.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Image transformed successfully',
+      data: {
+        transformation: {
+          id: image.transformations[image.transformations.length - 1]._id,
+          type,
+          parameters: options,
+          resultUrl,
+          createdAt: transformation.createdAt
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Transform image error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const batchTransformImage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { transformations } = req.body;
+
+    // Find the image
+    const image = await Image.findById(id);
+    if (!image) {
+      return res.status(404).json({
+        success: false,
+        message: 'Image not found'
+      });
+    }
+
+    // Check ownership
+    if (image.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You can only transform your own images.'
+      });
+    }
+
+    // Validate transformations array
+    if (!Array.isArray(transformations) || transformations.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Transformations must be a non-empty array'
+      });
+    }
+
+    // Apply batch transformations
+    const results = await imageTransformationService.applyMultipleTransformations(
+      image.path,
+      transformations
+    );
+
+    // Generate URLs and save transformations
+    const transformationRecords = results.map(result => {
+      const filename = path.basename(result.resultPath);
+      const resultUrl = generateImageUrl(req, filename);
+      
+      return {
+        type: result.type,
+        parameters: result.parameters,
+        resultPath: result.resultPath,
+        resultUrl,
+        createdAt: new Date()
+      };
+    });
+
+    // Save all transformations to database
+    image.transformations.push(...transformationRecords);
+    await image.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Batch transformations applied successfully',
+      data: {
+        transformations: transformationRecords.map((t, index) => ({
+          id: image.transformations[image.transformations.length - transformationRecords.length + index]._id,
+          type: t.type,
+          parameters: t.parameters,
+          resultUrl: t.resultUrl,
+          createdAt: t.createdAt
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Batch transform error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const getImageTransformations = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Find the image
+    const image = await Image.findById(id);
+    if (!image) {
+      return res.status(404).json({
+        success: false,
+        message: 'Image not found'
+      });
+    }
+
+    // Check ownership or public access
+    if (image.userId.toString() !== req.user._id.toString() && !image.isPublic) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You can only access transformations of your own images.'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        transformations: image.transformations.map(t => ({
+          id: t._id,
+          type: t.type,
+          parameters: t.parameters,
+          resultUrl: t.resultUrl,
+          createdAt: t.createdAt
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Get transformations error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const deleteTransformation = async (req, res) => {
+  try {
+    const { id, transformationId } = req.params;
+
+    // Find the image
+    const image = await Image.findById(id);
+    if (!image) {
+      return res.status(404).json({
+        success: false,
+        message: 'Image not found'
+      });
+    }
+
+    // Check ownership
+    if (image.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You can only delete transformations of your own images.'
+      });
+    }
+
+    // Find transformation
+    const transformationIndex = image.transformations.findIndex(
+      t => t._id.toString() === transformationId
+    );
+
+    if (transformationIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transformation not found'
+      });
+    }
+
+    const transformation = image.transformations[transformationIndex];
+
+    // Delete the transformed image file
+    if (transformation.resultPath) {
+      await deleteImageFile(transformation.resultPath);
+    }
+
+    // Remove transformation from database
+    image.transformations.splice(transformationIndex, 1);
+    await image.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Transformation deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Delete transformation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+const getImageMetadata = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Find the image
+    const image = await Image.findById(id);
+    if (!image) {
+      return res.status(404).json({
+        success: false,
+        message: 'Image not found'
+      });
+    }
+
+    // Check ownership or public access
+    if (image.userId.toString() !== req.user._id.toString() && !image.isPublic) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You can only access metadata of your own images.'
+      });
+    }
+
+    // Get detailed metadata using Sharp
+    const metadata = await imageTransformationService.getImageMetadata(image.path);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        basic: {
+          filename: image.filename,
+          originalName: image.originalName,
+          mimetype: image.mimetype,
+          size: image.size,
+          dimensions: image.dimensions,
+          uploadedAt: image.uploadedAt
+        },
+        detailed: metadata
+      }
+    });
+
+  } catch (error) {
+    console.error('Get metadata error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   uploadSingleImage,
   uploadMultipleImages,
   getImageById,
   getUserImages,
-  deleteImage
+  deleteImage,
+  transformImage,
+  batchTransformImage,
+  getImageTransformations,
+  deleteTransformation,
+  getImageMetadata
 };

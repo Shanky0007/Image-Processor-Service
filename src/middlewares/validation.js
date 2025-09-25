@@ -90,11 +90,128 @@ const validateImageUpload = [
     .withMessage('Tags must be a string with maximum 200 characters')
 ];
 
+const validateImageTransform = [
+  body('type')
+    .isIn(['resize', 'crop', 'rotate', 'format', 'filter', 'watermark', 'thumbnail'])
+    .withMessage('Invalid transformation type'),
+  
+  body('options')
+    .isObject()
+    .withMessage('Options must be an object'),
+  
+  // Resize validation
+  body('options.width')
+    .if(body('type').equals('resize'))
+    .optional()
+    .isInt({ min: 1, max: 5000 })
+    .withMessage('Width must be between 1 and 5000 pixels'),
+  
+  body('options.height')
+    .if(body('type').equals('resize'))
+    .optional()
+    .isInt({ min: 1, max: 5000 })
+    .withMessage('Height must be between 1 and 5000 pixels'),
+  
+  // Crop validation
+  body('options.left')
+    .if(body('type').equals('crop'))
+    .isInt({ min: 0 })
+    .withMessage('Left position must be a non-negative integer'),
+  
+  body('options.top')
+    .if(body('type').equals('crop'))
+    .isInt({ min: 0 })
+    .withMessage('Top position must be a non-negative integer'),
+  
+  body('options.width')
+    .if(body('type').equals('crop'))
+    .isInt({ min: 1 })
+    .withMessage('Crop width must be a positive integer'),
+  
+  body('options.height')
+    .if(body('type').equals('crop'))
+    .isInt({ min: 1 })
+    .withMessage('Crop height must be a positive integer'),
+  
+  // Rotate validation
+  body('options.angle')
+    .if(body('type').equals('rotate'))
+    .optional()
+    .isInt({ min: -360, max: 360 })
+    .withMessage('Angle must be between -360 and 360 degrees'),
+  
+  // Format validation
+  body('options.format')
+    .if(body('type').equals('format'))
+    .isIn(['jpeg', 'jpg', 'png', 'webp', 'tiff', 'gif'])
+    .withMessage('Invalid format'),
+  
+  body('options.quality')
+    .if(body('type').equals('format'))
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage('Quality must be between 1 and 100'),
+  
+  // Filter validation
+  body('options.filter')
+    .if(body('type').equals('filter'))
+    .isIn(['grayscale', 'sepia', 'blur', 'sharpen', 'negate'])
+    .withMessage('Invalid filter type'),
+  
+  body('options.intensity')
+    .if(body('type').equals('filter'))
+    .optional()
+    .isFloat({ min: 0.1, max: 10 })
+    .withMessage('Intensity must be between 0.1 and 10'),
+  
+  // Watermark validation
+  body('options.text')
+    .if(body('type').equals('watermark'))
+    .isString()
+    .isLength({ min: 1, max: 100 })
+    .withMessage('Watermark text must be between 1 and 100 characters'),
+  
+  body('options.position')
+    .if(body('type').equals('watermark'))
+    .optional()
+    .isIn(['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'])
+    .withMessage('Invalid watermark position'),
+  
+  // Thumbnail validation
+  body('options.width')
+    .if(body('type').equals('thumbnail'))
+    .optional()
+    .isInt({ min: 50, max: 500 })
+    .withMessage('Thumbnail width must be between 50 and 500 pixels'),
+  
+  body('options.height')
+    .if(body('type').equals('thumbnail'))
+    .optional()
+    .isInt({ min: 50, max: 500 })
+    .withMessage('Thumbnail height must be between 50 and 500 pixels')
+];
+
+const validateBatchTransform = [
+  body('transformations')
+    .isArray({ min: 1, max: 10 })
+    .withMessage('Transformations must be an array with 1-10 items'),
+  
+  body('transformations.*.type')
+    .isIn(['resize', 'crop', 'rotate', 'format', 'filter', 'watermark', 'thumbnail'])
+    .withMessage('Invalid transformation type'),
+  
+  body('transformations.*.options')
+    .isObject()
+    .withMessage('Each transformation must have an options object')
+];
+
 module.exports = {
   validateRegister,
   validateLogin,
   validateProfileUpdate,
   validateImageParams,
   validateImageQuery,
-  validateImageUpload
+  validateImageUpload,
+  validateImageTransform,
+  validateBatchTransform
 };
